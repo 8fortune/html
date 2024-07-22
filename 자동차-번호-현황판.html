@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자동차 정보 현황판</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .board {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #333;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .card {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .form, .file-actions, .filter-search, .sort-section, .pagination {
+            display: grid;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        input, button, select {
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .edit-btn { background-color: #2196F3; }
+        .delete-btn { background-color: #f44336; }
+        #fileInput {
+            display: none;
+        }
+        .statistics {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        #chart {
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        .selected {
+            background-color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="board">
+        <h1>자동차 정보 현황판</h1>
+        <div class="form">
+            <input type="text" id="name" placeholder="이름">
+            <input type="text" id="carNumber" placeholder="자동차 번호">
+            <button onclick="addCar()">추가</button>
+        </div>
+        <div class="file-actions">
+            <button onclick="exportData()">데이터 내보내기</button>
+            <button onclick="document.getElementById('fileInput').click()">데이터 가져오기</button>
+            <input type="file" id="fileInput" accept=".json" onchange="importData(this.files[0])">
+        </div>
+        <div class="filter-search">
+            <select id="dateFilter" onchange="applyFilters()">
+                <option value="">모든 날짜</option>
+            </select>
+            <input type="text" id="searchInput" placeholder="이름 또는 번호로 검색" oninput="applyFilters()">
+        </div>
+        <div class="sort-section">
+            <select id="sortField" onchange="sortCars()">
+                <option value="name">이름</option>
+                <option value="carNumber">차량 번호</option>
+                <option value="date">날짜</option>
+            </select>
+            <select id="sortOrder" onchange="sortCars()">
+                <option value="asc">오름차순</option>
+                <option value="desc">내림차순</option>
+            </select>
+        </div>
+        <div class="statistics">
+            <div class="stat-item">
+                <h3>총 차량 수</h3>
+                <p id="totalCars">0</p>
+            </div>
+            <div class="stat-item">
+                <h3>최근 등록</h3>
+                <p id="latestRegistration">-</p>
+            </div>
+        </div>
+        <div id="chart">
+            <canvas id="registrationChart"></canvas>
+        </div>
+        <div class="bulk-actions">
+            <button onclick="deleteSelected()">선택 삭제</button>
+        </div>
+        <div id="carGrid" class="grid">
+            <!-- 자동차 정보 카드가 여기에 추가됩니다 -->
+        </div>
+        <div class="pagination">
+            <button onclick="changePage(-1)">이전</button>
+            <span id="pageInfo"></span>
+            <button onclick="changePage(1)">다음</button>
+        </div>
+    </div>
+
+    <script>
+        let cars = [];
+        let editingIndex = -1;
+        let currentPage = 1;
+        const itemsPerPage = 10;
+        let selectedCars = new Set();
+
+        function loadCars() {
+            const storedCars = localStorage.getItem('cars');
+            if (storedCars) {
+                cars = JSON.parse(storedCars);
+                renderCars();
+                updateDateFilter();
+                updateStatistics();
+                updateChart();
+            }
+        }
+
+        function saveCars() {
+            localStorage.setItem('cars', JSON.stringify(cars));
+            updateDateFilter();
+            updateStatistics();
+            updateChart();
+        }
+
+        function addCar() {
+            const name = document.getElementById('name').value;
+            const carNumber = document.getElementById('carNumber').value;
+            if (name && carNumber) {
+                if (editingIndex === -1) {
+                    cars.push({ name, carNumber, date: new Date().toLocaleDateString() });
+                } else {
+                    cars[editingIndex] = { ...cars[editingIndex], name, carNumber };
+                    editingIndex = -1;
+                }
+                saveCars();
+                renderCars();
+                clearForm();
+            }
+        }
+
+        function editCar(index) {
+            const car = cars[index];
+            document.getElementById('name').value = car.name;
+            document.getElementById('carNumber').value = car.carNumber;
+            editingIndex = index;
+        }
+
+        function deleteCar(index) {
+            cars.splice(index, 1);
+            saveCars();
+            renderCars();
+        }
+
+        function renderCars(filteredCars = cars) {
+            const grid = document.getElementById('carGrid');
+            grid.innerHTML = '';
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const pageItems = filteredCars.slice(startIndex, endIndex);
+
+            pageItems.forEach((car, index) => {
+                const actualIndex = startIndex + index;
+                const card = document.createElement('div');
+                card.className = `card ${selectedCars.has(actualIndex) ? 'selected' : ''}`;
+                card.onclick = () => toggleSelection(actualIndex);
+                card.innerHTML = `
+                    <p><strong>이름:</strong> ${car.name}</p>
+                    <p><strong>번호:</strong> ${car.carNumber}</p>
+                    <p><strong>날짜:</strong> ${car.date}</p>
+                    <button class="edit-btn" onclick="event.stopPropagation(); editCar(${actualIndex})">수정</button>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteCar(${actualIndex})">삭제</button>
+                `;
+                grid.appendChild(card);
+            });
+
+            updatePagination(filteredCars.length);
+        }
+
+        function clearForm() {
+            document.getElementById('name').value = '';
+            document.getElementById('carNumber').value = '';
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify(cars);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            const exportFileDefaultName = 'car_data.json';
+
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+
+        function importData(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedCars = JSON.parse(e.target.result);
+                    cars = importedCars;
+                    saveCars();
+                    renderCars();
+                    alert('데이터를 성공적으로 가져왔습니다.');
+                } catch (error) {
+                    alert('데이터 가져오기에 실패했습니다. 파일 형식을 확인해주세요.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function updateDateFilter() {
+            const dateFilter = document.getElementById('dateFilter');
+            const dates = [...new Set(cars.map(car => car.date))];
+            dateFilter.innerHTML = '<option value="">모든 날짜</option>';
+            dates.forEach(date => {
+                const option = document.createElement('option');
+                option.value = date;
+                option.textContent = date;
+                dateFilter.appendChild(option);
+            });
+        }
+
+        function applyFilters() {
+            const dateFilter = document.getElementById('dateFilter').value;
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+
+            const filteredCars = cars.filter(car => {
+                const dateMatch = dateFilter === '' || car.date === dateFilter;
+                const searchMatch = car.name.toLowerCase().includes(searchInput) || 
+                                    car.carNumber.toLowerCase().includes(searchInput);
+                return dateMatch && searchMatch;
+            });
+
+            renderCars(filteredCars);
+        }
+
+        function sortCars() {
+            const field = document.getElementById('sortField').value;
+            const order = document.getElementById('sortOrder').value;
+
+            cars.sort((a, b) => {
+                if (a[field] < b[field]) return order === 'asc' ? -1 : 1;
+                if (a[field] > b[field]) return order === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            renderCars();
+        }
+
+        function updateStatistics() {
+            document.getElementById('totalCars').textContent = cars.length;
+            const latestCar = cars.reduce((latest, car) => 
+                new Date(car.date) > new Date(latest.date) ? car : latest
+            , cars[0]);
+            document.getElementById('latestRegistration').textContent = latestCar ? latestCar.date : '-';
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('registrationChart').getContext('2d');
+            const dateCounts = cars.reduce((counts, car) => {
+                counts[car.date] = (counts[car.date] || 0) + 1;
+                return counts;
+            }, {});
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(dateCounts),
+                    datasets: [{
+                        label: '등록 차량 수',
+                        data: Object.values(dateCounts),
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stepSize: 1
+                        }
+                    }
+                }
+            });
+        }
+
+        function toggleSelection(index) {
+            if (selectedCars.has(index)) {
+                selectedCars.delete(index);
+            } else {
+                selectedCars.add(index);
+            }
+            renderCars();
+        }
+
+        function deleteSelected() {
+            cars = cars.filter((_, index) => !selectedCars.has(index));
+            selectedCars.clear();
+            saveCars();
+            renderCars();
+        }
+
+        function updatePagination(totalItems) {
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
+        }
+
+        function changePage(direction) {
+            const totalPages = Math.ceil(cars.length / itemsPerPage);
+            currentPage += direction;
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            renderCars();
+        }
+
+        // 자동 저장
+        setInterval(saveCars, 60000); // 1분마다 자동 저장
+
+        window.onload = loadCars;
+    </script>
+</body>
+</html>
