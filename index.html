@@ -60,18 +60,6 @@
         #fileInput {
             display: none;
         }
-        .statistics {
-            display: flex;
-            justify-content: space-around;
-            margin-top: 20px;
-        }
-        .stat-item {
-            text-align: center;
-        }
-        #chart {
-            max-width: 600px;
-            margin: 20px auto;
-        }
         .selected {
             background-color: #e0e0e0;
         }
@@ -107,19 +95,6 @@
                 <option value="desc">내림차순</option>
             </select>
         </div>
-        <div class="statistics">
-            <div class="stat-item">
-                <h3>총 차량 수</h3>
-                <p id="totalCars">0</p>
-            </div>
-            <div class="stat-item">
-                <h3>최근 등록</h3>
-                <p id="latestRegistration">-</p>
-            </div>
-        </div>
-        <div id="chart">
-            <canvas id="registrationChart"></canvas>
-        </div>
         <div class="bulk-actions">
             <button onclick="deleteSelected()">선택 삭제</button>
         </div>
@@ -146,16 +121,12 @@
                 cars = JSON.parse(storedCars);
                 renderCars();
                 updateDateFilter();
-                updateStatistics();
-                updateChart();
             }
         }
 
         function saveCars() {
             localStorage.setItem('cars', JSON.stringify(cars));
             updateDateFilter();
-            updateStatistics();
-            updateChart();
         }
 
         function addCar() {
@@ -283,44 +254,6 @@
             renderCars();
         }
 
-        function updateStatistics() {
-            document.getElementById('totalCars').textContent = cars.length;
-            const latestCar = cars.reduce((latest, car) => 
-                new Date(car.date) > new Date(latest.date) ? car : latest
-            , cars[0]);
-            document.getElementById('latestRegistration').textContent = latestCar ? latestCar.date : '-';
-        }
-
-        function updateChart() {
-            const ctx = document.getElementById('registrationChart').getContext('2d');
-            const dateCounts = cars.reduce((counts, car) => {
-                counts[car.date] = (counts[car.date] || 0) + 1;
-                return counts;
-            }, {});
-
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: Object.keys(dateCounts),
-                    datasets: [{
-                        label: '등록 차량 수',
-                        data: Object.values(dateCounts),
-                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                        borderColor: 'rgba(75, 192, 192, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            stepSize: 1
-                        }
-                    }
-                }
-            });
-        }
-
         function toggleSelection(index) {
             if (selectedCars.has(index)) {
                 selectedCars.delete(index);
@@ -339,21 +272,21 @@
 
         function updatePagination(totalItems) {
             const totalPages = Math.ceil(totalItems / itemsPerPage);
-            document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
+            const pageInfo = document.getElementById('pageInfo');
+            pageInfo.textContent = `${currentPage} / ${totalPages}`;
         }
 
         function changePage(direction) {
-            const totalPages = Math.ceil(cars.length / itemsPerPage);
             currentPage += direction;
             if (currentPage < 1) currentPage = 1;
-            if (currentPage > totalPages) currentPage = totalPages;
-            renderCars();
+            if ((currentPage - 1) * itemsPerPage >= cars.length) {
+                currentPage -= 1;
+            }
+            applyFilters();
         }
 
-        // 자동 저장
-        setInterval(saveCars, 60000); // 1분마다 자동 저장
-
-        window.onload = loadCars;
+        loadCars();
+        setInterval(saveCars, 60000);
     </script>
 </body>
 </html>
