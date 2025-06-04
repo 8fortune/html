@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, 'src'))
 try:
     from core import Engine, Motor, Transmission, Battery, Vehicle
-    from simulation import simulate_acceleration, estimate_top_speed, calculate_max_gradeability # Added calculate_max_gradeability
+    from simulation import simulate_acceleration, estimate_top_speed, calculate_max_gradeability
     from plotting import plot_speed_vs_time, plot_torque_rpm_curves, plot_power_rpm_curves, plot_acceleration_map
     from outputs import get_gear_dependent_acceleration_map_data
 except ImportError as e:
@@ -28,9 +28,9 @@ class VehicleSimApp:
         self.simulation_results_df = None
         self.vehicle_obj_for_plotting = None
         self.accel_results = None
-        self.top_speed_results = None # For flat ground
+        self.top_speed_results = None
         self.max_gradeability_result = None
-        self.uphill_top_speed_results = None # For specified gradient
+        self.uphill_top_speed_results = None
 
         self.spec_validation_rules = {
             "mass_kg": True, "frontal_area_m2": True, "tire_radius_m": True,
@@ -78,11 +78,26 @@ class VehicleSimApp:
         self.results_text = tk.Text(self.results_frame, wrap=tk.WORD, height=20); self.results_text.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
         self.results_text.insert(tk.END, "시뮬레이션 결과가 여기에 표시됩니다."); self.results_text.config(state=tk.DISABLED)
 
-        self.graph_buttons_frame = ttk.LabelFrame(main_container, text="그래프 생성", padding="10 10"); self.graph_buttons_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, expand=False)
-        ttk.Button(self.graph_buttons_frame, text="속도-시간", command=self.show_speed_time_plot).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Button(self.graph_buttons_frame, text="토크-RPM", command=self.show_torque_rpm_plot).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Button(self.graph_buttons_frame, text="파워-RPM", command=self.show_power_rpm_plot).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Button(self.graph_buttons_frame, text="가속도 맵", command=self.show_accel_map_plot).pack(side=tk.LEFT, padx=5, pady=5)
+        # --- Graph Buttons Area ---
+        self.graph_buttons_frame = ttk.LabelFrame(main_container, text="그래프 생성", padding="10 10")
+        self.graph_buttons_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, expand=False) # Ensure this frame is packed
+
+        # Clear any previous placeholder widgets in graph_buttons_frame if any
+        for widget in self.graph_buttons_frame.winfo_children():
+            widget.destroy()
+
+        # Create and pack graph buttons
+        btn_plot_speed_time = ttk.Button(self.graph_buttons_frame, text="속도-시간 그래프", command=self.show_speed_time_plot)
+        btn_plot_speed_time.pack(side=tk.LEFT, padx=5, pady=5)
+
+        btn_plot_torque_rpm = ttk.Button(self.graph_buttons_frame, text="토크-RPM 그래프", command=self.show_torque_rpm_plot)
+        btn_plot_torque_rpm.pack(side=tk.LEFT, padx=5, pady=5)
+
+        btn_plot_power_rpm = ttk.Button(self.graph_buttons_frame, text="파워-RPM 그래프", command=self.show_power_rpm_plot)
+        btn_plot_power_rpm.pack(side=tk.LEFT, padx=5, pady=5)
+
+        btn_plot_accel_map = ttk.Button(self.graph_buttons_frame, text="가속도 맵", command=self.show_accel_map_plot)
+        btn_plot_accel_map.pack(side=tk.LEFT, padx=5, pady=5)
 
     def browse_file(self, entry_key: str):
         file_path = filedialog.askopenfilename(title=f"{entry_key} 파일 선택", filetypes=(("CSV files", "*.csv"), ("All files", "*.*")))
@@ -125,14 +140,21 @@ class VehicleSimApp:
             processed_specs['road_gradient_percent'] = float(raw_specs['road_gradient_percent']); processed_specs['additional_mass_kg'] = float(raw_specs['additional_mass_kg'])
             processed_specs['drivetrain_efficiency_percent'] = float(raw_specs['drivetrain_efficiency_percent']); processed_specs['max_total_torque_nm'] = float(raw_specs['max_total_torque_nm'])
 
-            gear_ratios_str = raw_specs['gear_ratios'].split(','); processed_specs['gear_ratios'] = []
-            for gr_str in gear_ratios_str: gr_str = gr_str.strip();
-                if not gr_str: continue; gr_val = float(gr_str)
-                if gr_val <= 0: raise ValueError("개별 기어비는 0보다 커야 합니다.");
+            gear_ratios_str = raw_specs.get('gear_ratios', "").split(',')
+            processed_specs['gear_ratios'] = []
+            for gr_str in gear_ratios_str:
+                gr_str = gr_str.strip()
+                if not gr_str: continue
+                gr_val = float(gr_str)
+                if gr_val <= 0:
+                    raise ValueError("개별 기어비는 0보다 커야 합니다.")
                 processed_specs['gear_ratios'].append(gr_val)
-            if not processed_specs['gear_ratios']: raise ValueError("기어비 목록이 비어있습니다.")
 
-            processed_specs['engine_torque_csv'] = raw_specs['engine_torque_csv'].strip(); processed_specs['motor_torque_csv'] = raw_specs['motor_torque_csv'].strip()
+            if not processed_specs['gear_ratios']:
+                raise ValueError("기어비 목록이 비어있거나 모든 항목이 유효하지 않습니다.")
+
+            processed_specs['engine_torque_csv'] = raw_specs['engine_torque_csv'].strip()
+            processed_specs['motor_torque_csv'] = raw_specs['motor_torque_csv'].strip()
 
             for key, rule in self.spec_validation_rules.items():
                 if key in processed_specs:
@@ -166,17 +188,18 @@ class VehicleSimApp:
             elif motor and specs.get('battery_capacity_kwh', 0) <= 0:
                  messagebox.showwarning("배터리 경고", "모터가 정의되었으나 배터리 용량이 0 이하입니다. 모터 성능이 제한될 수 있습니다.")
 
+            transmission_efficiency = specs.get('drivetrain_efficiency_percent', 85.0) / 100.0
             transmission = Transmission(
                 gear_ratios=specs['gear_ratios'],
                 final_gear_ratio=specs['final_gear_ratio'],
-                efficiency=specs['drivetrain_efficiency_percent'] / 100.0
+                efficiency=transmission_efficiency
             )
             self.vehicle_obj_for_plotting = Vehicle(
                 base_mass_kg=specs['mass_kg'],
+                additional_mass_kg=specs.get('additional_mass_kg', 0.0),
                 frontal_area_m2=specs['frontal_area_m2'], drag_coefficient=specs['drag_coefficient'],
                 rolling_resistance_coefficient=specs['rolling_resistance_coefficient'], tire_radius_m=specs['tire_radius_m'],
                 transmission=transmission, engine=engine, motor=motor, battery=battery,
-                additional_mass_kg=specs['additional_mass_kg'],
                 max_total_torque_nm=specs.get('max_total_torque_nm')
             )
             self.results_text.insert(tk.END, "토크 커브를 로드 중입니다...\n"); self.root.update_idletasks()
@@ -198,9 +221,8 @@ class VehicleSimApp:
             self.top_speed_results = {"평지 하이브리드": ts_flat_hybrid, "평지 엔진 단독": ts_flat_engine}
 
             self.results_text.insert(tk.END, "등판 성능을 계산 중입니다...\n"); self.root.update_idletasks()
-            # Use a lowish RPM for gradeability torque, e.g. 15% of engine redline or a fixed min like 1000
             ref_rpm_for_grade = specs.get('engine_redline_rpm', 6000) * 0.15 if specs.get('engine_redline_rpm', 0) > 0 else 1000
-            ref_rpm_for_grade = max(ref_rpm_for_grade, 800) # Ensure it's not too low
+            ref_rpm_for_grade = max(ref_rpm_for_grade, 800)
             self.max_gradeability_result = calculate_max_gradeability(self.vehicle_obj_for_plotting, reference_rpm_for_torque=ref_rpm_for_grade)
 
             self.uphill_top_speed_results = {}
@@ -231,7 +253,7 @@ class VehicleSimApp:
             results_string += f"가속 성능 (현재 경사도: {current_gradient_for_accel:.1f}% 적용):\n"
             sorted_targets = sorted([float(k) for k in self.accel_results.keys()])
             for target_kmh in sorted_targets:
-                time_val = self.accel_results[target_kmh] # Key is already float
+                time_val = self.accel_results[target_kmh]
                 if time_val == float('inf'): results_string += f"  0-{int(target_kmh)} km/h: 목표 도달 실패\n"
                 else: results_string += f"  0-{int(target_kmh)} km/h: {time_val:.2f} 초\n"
 
