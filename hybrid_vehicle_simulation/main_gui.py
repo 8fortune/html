@@ -7,6 +7,7 @@ import sys
 import pandas as pd
 import math # For isnan, isinf
 
+# Path setup and imports (ensure all necessary imports from previous steps are here)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, 'src'))
 try:
@@ -15,7 +16,7 @@ try:
     from plotting import plot_speed_vs_time, plot_torque_rpm_curves, plot_power_rpm_curves, plot_acceleration_map
     from outputs import get_gear_dependent_acceleration_map_data
 except ImportError as e:
-    print(f"모듈 임포트 중 오류 발생: {e}.")
+    print(f"Error importing modules: {e}.")
     sys.exit(1)
 
 class VehicleSimApp:
@@ -46,9 +47,17 @@ class VehicleSimApp:
             "drivetrain_efficiency_percent": (0, 100),
         }
 
-        main_container = ttk.Frame(root, padding="10 10 10 10"); main_container.pack(expand=True, fill=tk.BOTH)
-        top_pane = ttk.Frame(main_container); top_pane.pack(side=tk.TOP, fill=tk.X, expand=False, pady=5)
-        self.input_frame = ttk.LabelFrame(top_pane, text="차량 제원 입력", padding="10 10"); self.input_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # --- Main Layout ---
+        main_container = ttk.Frame(root, padding="10 10 10 10")
+        main_container.pack(expand=True, fill=tk.BOTH)
+
+        # Top part for inputs and controls
+        top_pane = ttk.Frame(main_container)
+        top_pane.pack(side=tk.TOP, fill=tk.X, expand=False, pady=5)
+
+        self.input_frame = ttk.LabelFrame(top_pane, text="차량 제원 입력", padding="10 10")
+        self.input_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=5)
+
         input_params = [
             ("차량 질량 (kg):", "mass_kg", "1500.0"), ("전면 면적 (m²):", "frontal_area_m2", "2.2"),
             ("항력 계수 (Cd):", "drag_coefficient", "0.28"), ("구름 저항 계수 (μ):", "rolling_resistance_coefficient", "0.01"),
@@ -64,29 +73,32 @@ class VehicleSimApp:
         ]
         for i, (label_text, key, default_val) in enumerate(input_params):
             label = ttk.Label(self.input_frame, text=label_text); label.grid(row=i, column=0, sticky=tk.W, padx=5, pady=2)
-            entry = ttk.Entry(self.input_frame, width=40); entry.grid(row=i, column=1, sticky=tk.EW, padx=5, pady=2); entry.insert(0, str(default_val))
+            entry = ttk.Entry(self.input_frame, width=40); entry.grid(row=i, column=1, sticky=tk.EW, padx=5, pady=2); entry.insert(0, str(default_val)) # Ensure default is string
             self.spec_entries[key] = entry
             if "_csv" in key: browse_button = ttk.Button(self.input_frame, text="찾아보기", command=lambda k=key: self.browse_file(k)); browse_button.grid(row=i, column=2, sticky=tk.W, padx=5, pady=2)
         self.input_frame.columnconfigure(1, weight=1)
 
-        self.control_frame = ttk.LabelFrame(top_pane, text="제어", padding="10 10"); self.control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
+        self.control_frame = ttk.LabelFrame(top_pane, text="제어", padding="10 10")
+        self.control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
         ttk.Button(self.control_frame, text="제원 저장", command=self.save_specifications).pack(fill=tk.X, padx=5, pady=5)
         ttk.Button(self.control_frame, text="제원 불러오기", command=self.load_specifications).pack(fill=tk.X, padx=5, pady=5)
         ttk.Button(self.control_frame, text="시뮬레이션 실행", command=self.run_simulation_sequence).pack(fill=tk.X, padx=5, pady=5, side=tk.BOTTOM)
 
-        self.results_frame = ttk.LabelFrame(main_container, text="시뮬레이션 결과", padding="10 10"); self.results_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.results_text = tk.Text(self.results_frame, wrap=tk.WORD, height=20); self.results_text.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
-        self.results_text.insert(tk.END, "시뮬레이션 결과가 여기에 표시됩니다."); self.results_text.config(state=tk.DISABLED)
+        # Results Frame - packed before graph_buttons_frame when graph_buttons_frame is side=tk.BOTTOM
+        self.results_frame = ttk.LabelFrame(main_container, text="시뮬레이션 결과", padding="10 10")
+        self.results_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.results_text = tk.Text(self.results_frame, wrap=tk.WORD, height=20)
+        self.results_text.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
+        self.results_text.insert(tk.END, "시뮬레이션 결과가 여기에 표시됩니다.")
+        self.results_text.config(state=tk.DISABLED)
 
-        # --- Graph Buttons Area ---
+        # Graph Buttons Area
         self.graph_buttons_frame = ttk.LabelFrame(main_container, text="그래프 생성", padding="10 10")
-        self.graph_buttons_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, expand=False) # Ensure this frame is packed
+        self.graph_buttons_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5, expand=False)
 
-        # Clear any previous placeholder widgets in graph_buttons_frame if any
         for widget in self.graph_buttons_frame.winfo_children():
             widget.destroy()
 
-        # Create and pack graph buttons
         btn_plot_speed_time = ttk.Button(self.graph_buttons_frame, text="속도-시간 그래프", command=self.show_speed_time_plot)
         btn_plot_speed_time.pack(side=tk.LEFT, padx=5, pady=5)
 
@@ -98,33 +110,6 @@ class VehicleSimApp:
 
         btn_plot_accel_map = ttk.Button(self.graph_buttons_frame, text="가속도 맵", command=self.show_accel_map_plot)
         btn_plot_accel_map.pack(side=tk.LEFT, padx=5, pady=5)
-
-    def browse_file(self, entry_key: str):
-        file_path = filedialog.askopenfilename(title=f"{entry_key} 파일 선택", filetypes=(("CSV files", "*.csv"), ("All files", "*.*")))
-        if file_path:
-            self.spec_entries[entry_key].delete(0, tk.END)
-            self.spec_entries[entry_key].insert(0, file_path)
-
-    def save_specifications(self):
-        specs_data = {key: entry.get() for key, entry in self.spec_entries.items()}
-        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json"), ("All files", "*.*")], title="차량 제원 저장")
-        if not file_path: return
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f: json.dump(specs_data, f, ensure_ascii=False, indent=4)
-            messagebox.showinfo("성공", f"제원이 '{file_path}'에 저장되었습니다.")
-        except Exception as e: messagebox.showerror("오류", f"제원 저장 중 오류: {e}")
-
-    def load_specifications(self):
-        file_path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json"), ("All files", "*.*")], title="차량 제원 불러오기")
-        if not file_path: return
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f: specs_data = json.load(f)
-            for key, value in specs_data.items():
-                if key in self.spec_entries:
-                    self.spec_entries[key].delete(0, tk.END)
-                    self.spec_entries[key].insert(0, value)
-            messagebox.showinfo("성공", f"'{file_path}'에서 제원을 불러왔습니다.")
-        except Exception as e: messagebox.showerror("오류", f"제원 불러오기 중 오류: {e}")
 
     def _get_and_validate_specs(self) -> dict:
         raw_specs = {key: entry.get() for key, entry in self.spec_entries.items()}
